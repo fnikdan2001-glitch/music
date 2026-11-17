@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="آهنگ شانسی">
+<meta name="theme-color" content="#1b1033">
+<title>آهنگ شانسی</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "SF Pro Text", Tahoma, sans-serif;
+    background: radial-gradient(circle at 30% 20%, #3a1f6e 0%, #1b1033 55%, #0c0718 100%);
+    color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+    text-align: center; user-select: none; -webkit-user-select: none;
+  }
+  h1 { font-size: 22px; font-weight: 600; opacity: .7; margin-bottom: 48px; letter-spacing: .5px; }
+  #play {
+    width: 220px; height: 220px; border-radius: 50%; border: none; cursor: pointer;
+    background: linear-gradient(145deg, #ff5f9e, #ff9a3c);
+    color: #fff; font-size: 26px; font-weight: 700; font-family: inherit;
+    box-shadow: 0 20px 60px rgba(255, 95, 158, .45), inset 0 -6px 18px rgba(0,0,0,.15);
+    transition: transform .15s ease;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  }
+  #play:active { transform: scale(.94); }
+  #play svg { width: 64px; height: 64px; }
+  #play.loading { animation: pulse 1s ease-in-out infinite; pointer-events: none; }
+  @keyframes pulse { 50% { transform: scale(.95); opacity: .8; } }
+  #info { margin-top: 48px; min-height: 90px; max-width: 520px; }
+  #title { font-size: 24px; font-weight: 700; line-height: 1.5; direction: auto; unicode-bidi: plaintext; }
+  #artist { font-size: 18px; opacity: .7; margin-top: 8px; direction: auto; unicode-bidi: plaintext; }
+  #status { font-size: 16px; opacity: .6; margin-top: 14px; }
+  .eq { display: none; gap: 5px; justify-content: center; height: 28px; align-items: flex-end; margin-bottom: 14px; }
+  .playing .eq { display: flex; }
+  .eq span { width: 6px; background: #ff9a3c; border-radius: 3px; animation: bar 0.9s ease-in-out infinite; }
+  .eq span:nth-child(2) { animation-delay: .2s; } .eq span:nth-child(3) { animation-delay: .4s; } .eq span:nth-child(4) { animation-delay: .1s; }
+  @keyframes bar { 0%,100% { height: 6px; } 50% { height: 28px; } }
+</style>
+</head>
+<body>
+  <h1>🎵 آهنگ شانسی</h1>
+
+  <button id="play" aria-label="پخش آهنگ تصادفی">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+    <span id="btnText">بزن بریم</span>
+  </button>
+
+  <div id="info">
+    <div class="eq"><span></span><span></span><span></span><span></span></div>
+    <div id="title"></div>
+    <div id="artist"></div>
+    <div id="status">دکمه رو بزن تا یه آهنگ رندوم پخش بشه</div>
+  </div>
+
+  <audio id="player" preload="none" playsinline></audio>
+
+<script>
+// منبع آهنگ‌ها: مجموعه «Netlabels» در Internet Archive (archive.org)
+// همه‌ی این آهنگ‌ها رایگان و قانونی (Creative Commons) هستن.
+const QUERY = 'collection:netlabels AND mediatype:audio';
+const ROWS = 100;          // چندتا نتیجه در هر صفحه
+const MAX_PAGE = 80;       // از بین چند صفحه رندوم انتخاب کنیم
+
+// یه صدای خیلی کوتاه و بی‌صدا برای اینکه آی‌پد اجازه‌ی پخش بده
+const SILENT = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+const btn = document.getElementById('play');
+const btnText = document.getElementById('btnText');
+const audio = document.getElementById('player');
+const titleEl = document.getElementById('title');
+const artistEl = document.getElementById('artist');
+const statusEl = document.getElementById('status');
+const infoEl = document.getElementById('info');
+
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 15000);
+    function cleanup() { clearTimeout(timer); delete window[cb]; s.remove(); }
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('network')); };
+    s.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+
+async function getJSON(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch (e) {
+    return jsonp(url); // اگه fetch نشد، از راه دیگه امتحان کن
+  }
+}
+
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const clean = (v) => (Array.isArray(v) ? v[0] : v || '').toString().trim();
+
+async function findRandomSong() {
+  const page = 1 + Math.floor(Math.random() * MAX_PAGE);
+  const searchUrl = 'https://archive.org/advancedsearch.php?q=' + encodeURIComponent(QUERY) +
+    '&fl[]=identifier&fl[]=title&fl[]=creator&rows=' + ROWS + '&page=' + page + '&output=json';
+  const res = await getJSON(searchUrl);
+  const docs = (res.response && res.response.docs) || [];
+  if (!docs.length) throw new Error('no results');
+  const item = pick(docs);
+
+  const meta = await getJSON('https://archive.org/metadata/' + encodeURIComponent(item.identifier));
+  const mp3s = (meta.files || []).filter(f =>
+    /\.mp3$/i.test(f.name) && (!f.length || parseFloat(f.length) > 45)
+  );
+  if (!mp3s.length) throw new Error('no mp3');
+  const file = pick(mp3s);
+
+  const path = file.name.split('/').map(encodeURIComponent).join('/');
+  return {
+    url: 'https://archive.org/download/' + encodeURIComponent(item.identifier) + '/' + path,
+    title: clean(file.title) || clean(item.title) || file.name.replace(/\.mp3$/i, ''),
+    artist: clean(file.artist) || clean(file.creator) || clean(item.creator) || clean(meta.metadata && meta.metadata.creator) || 'خواننده‌ی ناشناس'
+  };
+}
+
+function setLoading(on) {
+  btn.classList.toggle('loading', on);
+  btnText.textContent = on ? 'در حال گشتن…' : 'یه آهنگ دیگه';
+}
+
+async function playRandom() {
+  // این خط مهمه: همون لحظه‌ی زدن دکمه پخش رو «باز» می‌کنه تا آی‌پد جلوش رو نگیره
+  try { audio.src = SILENT; audio.play().catch(() => {}); } catch (e) {}
+
+  setLoading(true);
+  infoEl.classList.remove('playing');
+  titleEl.textContent = ''; artistEl.textContent = '';
+  statusEl.textContent = 'دارم یه آهنگ رندوم پیدا می‌کنم…';
+
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      const song = await findRandomSong();
+      audio.src = song.url;
+      await audio.play();
+      titleEl.textContent = song.title;
+      artistEl.textContent = song.artist;
+      statusEl.textContent = '';
+      infoEl.classList.add('playing');
+      setLoading(false);
+      return;
+    } catch (e) {
+      statusEl.textContent = 'یکی دیگه رو امتحان می‌کنم… (' + attempt + ')';
+    }
+  }
+  setLoading(false);
+  btnText.textContent = 'دوباره امتحان کن';
+  statusEl.textContent = 'نشد آهنگ پیدا کنم. اینترنت یا فیلترشکن رو چک کن و دوباره بزن.';
+}
+
+btn.addEventListener('click', playRandom);
+audio.addEventListener('ended', () => {
+  infoEl.classList.remove('playing');
+  statusEl.textContent = 'آهنگ تموم شد — برای بعدی دکمه رو بزن';
+});
+</script>
+</body>
+</html>
